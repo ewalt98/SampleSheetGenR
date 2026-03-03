@@ -2,28 +2,29 @@ library(Rlabkey)
 
 ${rLabkeySessionId}
 
-# current "Prod" is 01.3.4.003 version
+# TESTING IN DEV (GRS LIMs DEV), v1.3.5 - current "Prod" is v1.3.4.002 
 # 20260126 - Adding custom indexing support to allow user entered custom index sequences to remain in the sample sheet.
 # 20260126 - Simplifying the printing of sample sheets by using the is_v2 flag to determine V1 vs V2 sample sheet format
 # 20260128 - Added automatic filling of Sample_Project based on GRSID lookup if missing in the results data table.
 # 20260128 - Change the printing to a function to reduce code duplication and improve performance.
 # 20260128 - Some slight cleanup to remove redundant code and comments.
 # 20260129 - Centralized environment/path configuration at top (one edit point).
-# 20260213 - Fix 10X sample sheet writing to only include relevant columns and standard sample sheet download link.
+# 20260201 - Adding function to choose multiple index  kits in the results grid. - not complete yet, but added the config and started the code for it.
 
 ###############################################################################
-### CONFIG - single edit point for configruring server/instance and paths
+### CONFIG - single edit point for configruring server/instance and folder paths
 ###############################################################################
 # Base LabKey connection used for executeSql (if you have multiple servers and instances, change here)
-LABKEY_BASE_URL     <- "https://rtblims.niaid.nih.gov/labkey"
-LABKEY_FOLDER_PATH  <- "/GRS LIMs PROD"   # folderPath for labkey.executeSql
+LABKEY_BASE_URL     <- "https://rtblims-dev.niaid.nih.gov/labkey"
+LABKEY_FOLDER_PATH  <- "/GRS LIMs DEV"   # folderPath for labkey.executeSql
 
 # File system path that backs the WebDAV endpoint (where sample sheet files must be written).  Keep the spaces.
-ss_dir              <- "/labkey/labkey/files/GRS LIMs PROD/@files/ss_transformation/SampleSheets"
+ss_dir              <- "/labkey/labkey/files/GRS LIMs DEV/@files/ss_transformation/SampleSheets"
 
 # The WebDAV URL template used in the assay result link (only ${sampleSheet} will be replaced)
 # Keep the %20 and %40 encodings exactly as needed for LabKey's _webdav link.
-webdav_base <- "/labkey/_webdav/GRS%20LIMs%20PROD/%40files/ss_transformation/SampleSheets/"
+webdav_base <- "/labkey/_webdav/GRS%20LIMs%20DEV/%40files/ss_transformation/SampleSheets/"
+
 # Local debug output file (optional) - can remain relative or absolute
 debug_transformed_runprops <- "transformedRunProperties.tsv"
 
@@ -99,32 +100,25 @@ print(paste("SQL Lookup Result - Project Name:", grsid_name))
 ############################################
 myssname <- paste("SampleSheet_", run.name, ".csv", sep = "")
 my10sheet <- paste("SampleSheet_", run.name, "_10X.csv", sep = "")
-# ss_basename is the SEQUENCER-LOAD sample sheet (always standard)
-ss_basename <- myssname
 
 # --- Sample sheet link/attachment values (DO NOT put a webdav URL into a File-typed field) ---
 
-# 1) sampleSheet should ALWAYS be the STANDARD sheet (sequencer load sheet)
-run.props$val1[run.props$name == "sampleSheet"] <- ss_basename # myssname is the basename, which is what LabKey's _webdav linking expects for file attachments.  DO NOT put a webdav URL here or it will break the attachment.
+# 1) sampleSheet MUST be basename only for your assay URL-template field (${sampleSheet})
+ss_basename <- if (experiment == "10X") my10sheet else myssname
+run.props$val1[run.props$name == "sampleSheet"] <- ss_basename
 
-# 2) SampleSheetDownload (File type) should be 10X when selected, otherwise standard
-download_name <- if (experiment == "10X") my10sheet else myssname
-download_relpath <- paste0("ss_transformation/SampleSheets/", download_name)
-run.props$val1[run.props$name == "SampleSheetDownload"] <- download_relpath
-
-# 3) Optional URL/text field: decide what you want it to follow
-# If you want it to match the sequencer-load sheet (standard), use myssname:
+# 2) Insert the relative path and WebDAV URL into the appropriate fields
+ss_relpath <- paste0("ss_transformation/SampleSheets/", ss_basename)
 ss_webdav_url <- paste0(webdav_base, ss_basename)
 
-# If instead you want it to match the downloadable file (10X on 10X runs), use download_name:
-# ss_webdav_url <- paste0(webdav_base, ss_basename)
+# 3) File-typed field MUST be a file reference, typically just the basename (or possibly a relative @files path).
+# Start with basename (most common and matches what you said it “should just start with ss_...”)
+run.props$val1[run.props$name == "SampleSheetDownload"] <- ss_relpath
 
+# only set it if that property exists so we don't affect other runs.
 if ("SampleSheetWebLink" %in% run.props$name) {
   run.props$val1[run.props$name == "SampleSheetWebLink"] <- ss_webdav_url
 }
-
-print(paste("sampleSheet (sequencer):", run.props$val1[run.props$name == "sampleSheet"]))
-print(paste("SampleSheetDownload (file):", run.props$val1[run.props$name == "SampleSheetDownload"]))
 
 # Debug prints to confirm what gets written
 print(paste("sampleSheet (basename):", ss_basename))
@@ -179,28 +173,169 @@ sample_data$Index2 <- as.character(sample_data$Index2)
 if("Well" %in% colnames(sample_data)) sample_data$Well <- toupper(sample_data$Well)
 
 ###############################################################################
-#   Add index mapping to the sample table
+#   Add index mapping to the sample table (multi-kit aware)
+#
+#  - Per-row kit priority: sample_data$IndexKit_MultiSelect (or "Index_Kit") -> run-level index_adapters -> no lookup
+#  - Only fill when Well is present and we find a matching mapping row in mids
+#  - Preserve manual Index/Index2 values (only assign where missing/NA/"")
 ###############################################################################
-# matches for index 1 (for)
-matches_for <- match(sample_data$Well, mids_for$Well)
-has_match_for <- !is.na(matches_for)
-if(any(has_match_for)) {
-  sample_data$Index[has_match_for] <- mids_for$Index[matches_for[has_match_for]]
-  # initialize ID columns if not present
-  if(!"I7_Index_ID" %in% colnames(sample_data)) sample_data$I7_Index_ID <- NA
-  if(!"MIDSet" %in% colnames(sample_data)) sample_data$MIDSet <- NA
-  sample_data$I7_Index_ID[has_match_for] <- mids_for$IndexID[matches_for[has_match_for]]
-  sample_data$MIDSet[has_match_for] <- mids_for$MIDSet[matches_for[has_match_for]]
+# --- Ensure canonical kit column exists and is populated from run-level when blank --- Might not need this, maybe over guarding
+if (!"IndexKit_MultiSelect" %in% colnames(sample_data)) {
+  sample_data$IndexKit_MultiSelect <- NA_character_
+} else {
+  sample_data$IndexKit_MultiSelect <- as.character(sample_data$IndexKit_MultiSelect)
 }
 
-# matches for index 2 (rev)
-matches_rev <- match(sample_data$Well, mids_rev$Well)
-has_match_rev <- !is.na(matches_rev)
-if(any(has_match_rev)) {
-  sample_data$Index2[has_match_rev] <- mids_rev$Index[matches_rev[has_match_rev]]
-  if(!"I5_Index_ID" %in% colnames(sample_data)) sample_data$I5_Index_ID <- NA
-  sample_data$I5_Index_ID[has_match_rev] <- mids_rev$IndexID[matches_rev[has_match_rev]]
+# Fill blanks with run-level kit (persist into the row so DB has one populated column)
+# Populate IndexKit_MultiSelect based on context:
+# - If Well is present and kit is blank -> use run-level kit
+# - If Well is blank and kit is blank -> mark as "Custom Kit"
+
+blank_kit <- is.na(sample_data$IndexKit_MultiSelect) |
+             sample_data$IndexKit_MultiSelect == "" |
+             sample_data$IndexKit_MultiSelect == "NA"
+
+has_well <- "Well" %in% colnames(sample_data) &
+            !is.na(sample_data$Well) &
+            sample_data$Well != ""
+
+# Case 1: Auto-lookup rows → inherit run-level kit
+if (!is.na(index_adapters) && nzchar(as.character(index_adapters))) {
+  auto_rows <- which(blank_kit & has_well)
+  if (length(auto_rows) > 0) {
+    sample_data$IndexKit_MultiSelect[auto_rows] <- as.character(index_adapters)
+  }
 }
+
+# Case 2: Manual-index rows → explicitly label as Custom Kit
+manual_rows <- which(blank_kit & !has_well)
+if (length(manual_rows) > 0) {
+  sample_data$IndexKit_MultiSelect[manual_rows] <- "Custom Kit"
+}
+
+# Optional debug
+print(paste(
+  "IndexKit filled:",
+  length(auto_rows), "run-level,",
+  length(manual_rows), "custom"
+))
+
+# Optional: validate kit names exist in mids and warn if not (helps catch typos)
+valid_kits <- unique(mids$IndexKit)
+bad_kit_rows <- which(!is.na(sample_data$IndexKit_MultiSelect) &
+                      !(sample_data$IndexKit_MultiSelect %in% valid_kits))
+if (length(bad_kit_rows) > 0) {
+  print(paste("Warning: unknown IndexKit_MultiSelect values in rows:", paste(bad_kit_rows, collapse = ",")))
+  print(paste("Unknown kits:", paste(unique(sample_data$IndexKit_MultiSelect[bad_kit_rows]), collapse = ",")))
+}
+# --- end guard ---
+
+
+# ensure index/id/MID columns exist (don't clobber existing)
+if(!"Index" %in% colnames(sample_data)) sample_data$Index <- NA
+if(!"Index2" %in% colnames(sample_data)) sample_data$Index2 <- NA
+if(!"I7_Index_ID" %in% colnames(sample_data)) sample_data$I7_Index_ID <- NA
+if(!"I5_Index_ID" %in% colnames(sample_data)) sample_data$I5_Index_ID <- NA
+if(!"MIDSet" %in% colnames(sample_data)) sample_data$MIDSet <- NA
+
+# coerce to character to avoid type issues
+sample_data$Index <- as.character(sample_data$Index)
+sample_data$Index2 <- as.character(sample_data$Index2)
+sample_data$I7_Index_ID <- as.character(sample_data$I7_Index_ID)
+sample_data$I5_Index_ID <- as.character(sample_data$I5_Index_ID)
+sample_data$MIDSet <- as.character(sample_data$MIDSet)
+
+# helper: safe string-empty-or-na test
+is_blank <- function(x) {
+  is.na(x) | x == "" | identical(x, "NA")
+}
+
+# Precompute mids subsets by kit and sequencing tech to speed repeated lookups
+# We'll create two lookup lists:
+#  - forward_map[[kit]]  : rows where SequencingTech == "All" and IndexKit == kit
+#  - rev_map[[kit]]      : rows where SequencingTech == seqtech and IndexKit == kit
+unique_kits <- unique(mids$IndexKit)
+forward_map <- list()
+rev_map <- list()
+for (k in unique_kits) {
+  forward_map[[k]] <- mids[mids$IndexKit == k & mids$SequencingTech == "All", , drop = FALSE]
+  rev_map[[k]] <- mids[mids$IndexKit == k & mids$SequencingTech == seqtech, , drop = FALSE]
+}
+
+# Now iterate rows and apply mapping when possible (vectorized loop is fine for typical plate sizes)
+for (i in seq_len(nrow(sample_data))) {
+  well_val <- NA
+  if ("Well" %in% colnames(sample_data)) well_val <- sample_data$Well[i]
+  if (is.na(well_val) || well_val == "") {
+    # No well: skip auto-lookup (user must have entered Index manually)
+    next
+  }
+
+# Determine kit for this row: row-level > run-level
+kit_to_use <- NULL
+
+# 1) Row-level kit (user-entered)
+krow <- sample_data$IndexKit_MultiSelect[i]
+if (!is_blank(krow)) {
+  kit_to_use <- as.character(krow)
+}
+
+# 2) Run-level kit fallback
+if (is.null(kit_to_use) || is_blank(kit_to_use)) {
+  if (!is_blank(index_adapters)) {
+    kit_to_use <- as.character(index_adapters)
+
+    # Persist the run-level kit into the row ONLY if the row was blank
+    sample_data$IndexKit_MultiSelect[i] <- kit_to_use
+  }
+}
+
+# 3) Still no kit → skip auto-lookup
+if (is.null(kit_to_use) || is_blank(kit_to_use)) next
+
+  # If still no kit, skip (user expected to have provided Index manually)
+  if (is.null(kit_to_use) || is_blank(kit_to_use)) next
+
+  # Try forward mapping first (Index / I7_Index_ID / MIDSet)
+  fm <- forward_map[[kit_to_use]]
+  if (!is.null(fm) && nrow(fm) > 0) {
+    # find matching Well row in the mapping
+    fr_idx <- which(fm$Well == well_val)
+    if (length(fr_idx) == 1) {
+      # only assign Index if user hasn't provided a manual Index
+      if (is_blank(sample_data$Index[i]) || is.na(sample_data$Index[i])) {
+        sample_data$Index[i] <- as.character(fm$Index[fr_idx])
+      }
+      if (is_blank(sample_data$I7_Index_ID[i]) || is.na(sample_data$I7_Index_ID[i])) {
+        sample_data$I7_Index_ID[i] <- as.character(fm$IndexID[fr_idx])
+      }
+      if (is_blank(sample_data$MIDSet[i]) || is.na(sample_data$MIDSet[i])) {
+        sample_data$MIDSet[i] <- as.character(fm$MIDSet[fr_idx])
+      }
+    }
+  }
+
+  # Try reverse mapping (Index2 / I5_Index_ID)
+  rm <- rev_map[[kit_to_use]]
+  if (!is.null(rm) && nrow(rm) > 0) {
+    rr_idx <- which(rm$Well == well_val)
+    if (length(rr_idx) == 1) {
+      if (is_blank(sample_data$Index2[i]) || is.na(sample_data$Index2[i])) {
+        sample_data$Index2[i] <- as.character(rm$Index[rr_idx])
+      }
+      if (is_blank(sample_data$I5_Index_ID[i]) || is.na(sample_data$I5_Index_ID[i])) {
+        sample_data$I5_Index_ID[i] <- as.character(rm$IndexID[rr_idx])
+      }
+    }
+  }
+}
+
+# Optional debug: counts of rows that are still missing indexes after attempt
+num_missing_index <- sum(is_blank(sample_data$Index))
+num_missing_index2 <- sum(is_blank(sample_data$Index2))
+print(paste("After multi-kit lookup: rows missing Index =", num_missing_index, "missing Index2 =", num_missing_index2))
+
+# --- end multi-kit mapping block ---
 
 ###############################################################################
 # Ensure index ID columns exist (don't overwrite if present) and persist them.
@@ -236,7 +371,7 @@ write.table(
 ###############################################################################
 # 1. 10X table (if needed)
 if(experiment == "10X") {
-  cols_10x <- intersect(c("Sample_ID", "Index", "I7_Index_ID"), colnames(sample_data))
+  cols_10x <- intersect(c("Sample_ID", "Index", "Sample_Project"), colnames(sample_data))
   sample_10x <- sample_data[, cols_10x, drop = FALSE]
 }
 
