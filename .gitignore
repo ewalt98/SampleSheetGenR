@@ -1,3 +1,18 @@
 #	Ignore these files and folders
 
 archive/
+index_kit_lists/
+tmp/
+.DS_Store
+*.log
+*.bak
+*.tmp
+Sequencing_SS.docx
+ss_trans_01_console_version.R
+ss_trans_01.3.3.R
+ss_trans_01.3.4.R
+ss_trans_01.3.4.001.R
+ss_trans_01.3.4.002.R
+ss_trans_01.3.4.003_dev.R
+
+
