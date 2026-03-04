@@ -11,27 +11,57 @@ ${rLabkeySessionId}
 # 20260129 - Centralized environment/path configuration at top (one edit point).
 # 20260201 - Adding function to choose multiple index  kits in the results grid. - not complete yet, but added the config and started the code for it.
 
-###############################################################################
-### CONFIG - single edit point for configruring server/instance and folder paths
-###############################################################################
-# Base LabKey connection used for executeSql (if you have multiple servers and instances, change here)
-LABKEY_BASE_URL     <- "https://rtblims-dev.niaid.nih.gov/labkey"
-LABKEY_FOLDER_PATH  <- "/GRS LIMs DEV"   # folderPath for labkey.executeSql
-
-# File system path that backs the WebDAV endpoint (where sample sheet files must be written).  Keep the spaces.
-ss_dir              <- "/labkey/labkey/files/GRS LIMs DEV/@files/ss_transformation/SampleSheets"
-
-# The WebDAV URL template used in the assay result link (only ${sampleSheet} will be replaced)
-# Keep the %20 and %40 encodings exactly as needed for LabKey's _webdav link.
-webdav_base <- "/labkey/_webdav/GRS%20LIMs%20DEV/%40files/ss_transformation/SampleSheets/"
-
-# Local debug output file (optional) - can remain relative or absolute
-debug_transformed_runprops <- "transformedRunProperties.tsv"
 
 ################################################
 # Read in the run properties and results data table.
 ################################################
 run.props = labkey.transform.readRunPropertiesFile("${runInfo}");
+
+###############################################################################
+### CONFIG - auto-detect server + container from run properties (no edits per env)
+###############################################################################
+rk_prop <- function(name) labkey.transform.getRunPropertyValue(run.props, name)
+
+# LabKey includes these in runProperties.tsv
+LABKEY_BASE_URL    <- rk_prop("baseUrl")        # e.g. https://rtblims-dev.../labkey
+LABKEY_FOLDER_PATH <- rk_prop("containerPath")  # e.g. /GRS LIMs PROD
+if (is.na(LABKEY_BASE_URL) || LABKEY_BASE_URL == "") stop("Missing run prop: baseUrl")
+if (is.na(LABKEY_FOLDER_PATH) || LABKEY_FOLDER_PATH == "") stop("Missing run prop: containerPath")
+
+# Optional: label environment for logging only
+LABKEY_ENV <- if (grepl("rtblims-dev\\.", LABKEY_BASE_URL)) "dev"
+         else if (grepl("rtblims-qa\\.",  LABKEY_BASE_URL)) "qa"
+         else if (grepl("rtblims\\.niaid\\.", LABKEY_BASE_URL)) "prod"
+         else "unknown"
+print(paste("Running in", LABKEY_ENV, "baseUrl:", LABKEY_BASE_URL, "container:", LABKEY_FOLDER_PATH))
+
+# ---- Paths for writing SampleSheets on the server filesystem ----
+# If your LabKey "files" root differs, change this ONE value.
+LK_FILE_ROOT <- "/labkey/labkey/files"
+
+# Convert containerPath (/A/B) to filesystem segment (A/B). Works for nested folders too.
+container_fs <- sub("^/+", "", LABKEY_FOLDER_PATH)
+
+# Where sample sheet files must be written (backing @files/ss_transformation/SampleSheets)
+ss_dir <- file.path(LK_FILE_ROOT, container_fs, "@files", "ss_transformation", "SampleSheets")
+
+# Index mapping file (your code expects it alongside ss_transformation)
+mids_file <- file.path(LK_FILE_ROOT, container_fs, "@files", "ss_transformation", "SampleSheet_Gen_RML.csv")
+
+# ---- WebDAV base for hyperlinks (server-relative) ----
+# Pull context path from baseUrl (e.g. "/labkey")
+context_path <- sub("^https?://[^/]+", "", LABKEY_BASE_URL)
+context_path <- sub("/$", "", context_path)
+
+# Encode each segment for URLs (spaces -> %20, etc.), keep "/" separators
+container_enc <- paste(vapply(strsplit(container_fs, "/")[[1]], URLencode, "", reserved = TRUE), collapse = "/")
+
+# Keep %40files exactly as LabKey expects for "@files"
+webdav_base <- paste0(context_path, "/_webdav/", container_enc, "/%40files/ss_transformation/SampleSheets/")
+
+# Local debug output file 
+debug_transformed_runprops <- "transformedRunProperties.tsv"
+
 
 # get important file paths from run props
 run.data.file   <- labkey.transform.getRunPropertyValue(run.props, "runDataFile");
@@ -136,7 +166,7 @@ if ("SampleSheetWebLink" %in% run.props$name) {
 write.table(run.props, file=debug_transformed_runprops, sep="\t", na="", row.names=FALSE, quote=FALSE);
 
 # read index mapping table (keep this path in the config block if you want)
-mids_file <- file.path(dirname(ss_dir), "SampleSheet_Gen_RML.csv")
+# mids_file read above in config block - make sure to update there if you move it
 
 if(!file.exists(mids_file)) stop(paste("Missing index mapping file:", mids_file))
 
