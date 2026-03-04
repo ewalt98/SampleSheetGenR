@@ -2,7 +2,7 @@ library(Rlabkey)
 
 ${rLabkeySessionId}
 
-# TESTING IN DEV (GRS LIMs DEV), v1.3.5 - current "Prod" is v1.3.4.002 
+# TESTING IN DEV (GRS LIMs DEV), v1.3.6 - current "Prod" is v1.3.4.002 
 # 20260126 - Adding custom indexing support to allow user entered custom index sequences to remain in the sample sheet.
 # 20260126 - Simplifying the printing of sample sheets by using the is_v2 flag to determine V1 vs V2 sample sheet format
 # 20260128 - Added automatic filling of Sample_Project based on GRSID lookup if missing in the results data table.
@@ -10,7 +10,7 @@ ${rLabkeySessionId}
 # 20260128 - Some slight cleanup to remove redundant code and comments.
 # 20260129 - Centralized environment/path configuration at top (one edit point).
 # 20260201 - Adding function to choose multiple index  kits in the results grid. - not complete yet, but added the config and started the code for it.
-
+# 20260303 - Added base URL and containerPath auto-detection from run properties to eliminate environment-specific code and reduce setup errors.
 
 ################################################
 # Read in the run properties and results data table.
