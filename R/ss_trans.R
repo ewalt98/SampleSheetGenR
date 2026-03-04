@@ -29,10 +29,15 @@ if (is.na(LABKEY_BASE_URL) || LABKEY_BASE_URL == "") stop("Missing run prop: bas
 if (is.na(LABKEY_FOLDER_PATH) || LABKEY_FOLDER_PATH == "") stop("Missing run prop: containerPath")
 
 # Optional: label environment for logging only
-LABKEY_ENV <- if (grepl("rtblims-dev\\.", LABKEY_BASE_URL)) "dev"
-         else if (grepl("rtblims-qa\\.",  LABKEY_BASE_URL)) "qa"
-         else if (grepl("rtblims\\.niaid\\.", LABKEY_BASE_URL)) "prod"
-         else "unknown"
+LABKEY_ENV <- if (grepl("rtblims-dev\\.", LABKEY_BASE_URL)) {
+  "dev"
+} else if (grepl("rtblims-qa\\.", LABKEY_BASE_URL)) {
+  "qa"
+} else if (grepl("rtblims\\.niaid\\.", LABKEY_BASE_URL)) {
+  "prod"
+} else {
+  "unknown"
+}
 print(paste("Running in", LABKEY_ENV, "baseUrl:", LABKEY_BASE_URL, "container:", LABKEY_FOLDER_PATH))
 
 # ---- Paths for writing SampleSheets on the server filesystem ----
