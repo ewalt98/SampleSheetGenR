@@ -2,7 +2,7 @@ library(Rlabkey)
 
 ${rLabkeySessionId}
 
-# TESTING IN DEV (GRS LIMs DEV), v1.3.6 - current "Prod" is v1.3.4.002 
+# TESTING IN DEV (GRS LIMs DEV), v1.3.6 - current "Prod" is v1.3.4.002
 # 20260126 - Adding custom indexing support to allow user entered custom index sequences to remain in the sample sheet.
 # 20260126 - Simplifying the printing of sample sheets by using the is_v2 flag to determine V1 vs V2 sample sheet format
 # 20260128 - Added automatic filling of Sample_Project based on GRSID lookup if missing in the results data table.
@@ -64,7 +64,7 @@ container_enc <- paste(vapply(strsplit(container_fs, "/")[[1]], URLencode, "", r
 # Keep %40files exactly as LabKey expects for "@files"
 webdav_base <- paste0(context_path, "/_webdav/", container_enc, "/%40files/ss_transformation/SampleSheets/")
 
-# Local debug output file 
+# Local debug output file
 debug_transformed_runprops <- "transformedRunProperties.tsv"
 
 
@@ -109,8 +109,8 @@ invesname  <- "Unknown Investigator"
 grsid_name <- "MISSING_GRSID"
 
 if(!is.na(grsid) && grsid != "" && grsid != 0) {
-  sql <- paste0("SELECT Requests.Name, Requests.Investigator 
-                 FROM Requests 
+  sql <- paste0("SELECT Requests.Name, Requests.Investigator
+                 FROM Requests
                  WHERE Requests.RowId = ", grsid)
   sqlResults <- labkey.executeSql(
     baseUrl=LABKEY_BASE_URL,
