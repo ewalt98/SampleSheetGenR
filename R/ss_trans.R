@@ -11,6 +11,7 @@ ${rLabkeySessionId}
 # 20260129 - Centralized environment/path configuration at top (one edit point).
 # 20260201 - Adding function to choose multiple index  kits in the results grid. - not complete yet, but added the config and started the code for it.
 # 20260303 - Added base URL and containerPath auto-detection from run properties to eliminate environment-specific code and reduce setup errors.
+# 20260310 - Fix 10x Sample sheet
 
 ################################################
 # Read in the run properties and results data table.
@@ -402,14 +403,17 @@ write.table(
 )
 
 ###############################################################################
-#   Prepare Print Tables (use only existing columns to avoid failures)
+#   Prepare Print Table Variants (use only existing columns to avoid failures)
 ###############################################################################
-# 1. 10X table (if needed)
-if(experiment == "10X") {
-  cols_10x <- intersect(c("Sample_ID", "Index", "Sample_Project"), colnames(sample_data))
-  sample_10x <- sample_data[, cols_10x, drop = FALSE]
+# 1. 10X table (if needed) - Lane,Sample,Index (Index uses I7_Index_ID)
+if (experiment == "10X") {
+  sample_10x <- data.frame(
+    Lane   = rep("*", nrow(sample_data)),
+    Sample = sample_data$Sample_ID,
+    Index  = sample_data$I7_Index_ID,
+    stringsAsFactors = FALSE
+  )
 }
-
 # 2. NextSeq 2000 (V2) table
 if (is_v2) {
   cols_ns2k <- intersect(c("Sample_ID", "Index", "Index2"), colnames(sample_data))
