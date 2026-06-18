@@ -2,7 +2,7 @@ library(Rlabkey)
 
 ${rLabkeySessionId}
 
-# TESTING IN DEV (GRS LIMs DEV), v1.3.6 - current "Prod" is v1.3.4.002
+# TESTING IN DEV (GRS LIMs DEV), v1.3.8 - current "Prod" is v1.3.7
 # 20260126 - Adding custom indexing support to allow user entered custom index sequences to remain in the sample sheet.
 # 20260126 - Simplifying the printing of sample sheets by using the is_v2 flag to determine V1 vs V2 sample sheet format
 # 20260128 - Added automatic filling of Sample_Project based on GRSID lookup if missing in the results data table.
