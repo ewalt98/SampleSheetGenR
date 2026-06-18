@@ -13,6 +13,7 @@ ${rLabkeySessionId}
 # 20260303 - Added base URL and containerPath auto-detection from run properties to eliminate environment-specific code and reduce setup errors.
 # 20260310 - Fix 10x Sample sheet
 # 20260318 - If V2 sheet is generated, also generate a V1 copy named *_V1.csv and link via SampleSheetDownloadV1 (no other naming changes).
+# 20260618 - Incorporate the new i100 sequencer BCL Convert version 4.4.6 to the sample sheet generation script.  This version of BCL Convert is required for the i100 sequencer, and it is backwards compatible with the NextSeq 1k2k sequencer.  The sample sheet format has not changed, but the BCL Convert version is now included in the [BCLConvert_Settings] section of the sample sheet.
 
 ################################################
 # Read in the run properties and results data table.
@@ -104,8 +105,48 @@ ass.com       <- myrun.props["AssayComments", ]
 experiment <- labkey.transform.getRunPropertyValue(run.props, "TypeOfExperiment")
 
 # Determine V2 sample sheet condition once
-is_v2 <- (instrument == "VH01716" || experiment != "Standard")
-print(paste("DEBUG is_v2 =", is_v2, "| instrument =", instrument, "| experiment =", experiment))
+# VH01716 and SL00784 use the same V2 layout/orientation, but different BCL Convert versions.  Change version below if/when a new version is installed.
+is_v2 <- (instrument %in% c("VH01716", "SL00784") || experiment != "Standard")
+
+# Determine BCL Convert software version independently from V1/V2 layout.
+bclconvert_software_version <- function(instrument) {
+  instrument <- as.character(instrument)
+
+  if (instrument == "SL00784") {
+    return("4.4.6")
+  }
+
+  # Default for VH01716 and any other V2-producing runs unless explicitly changed.
+  return("4.2.7")
+}
+
+software_version <- bclconvert_software_version(instrument)
+
+# Determine platform for sample sheet based on instrument (affects default BCL Convert settings section)
+instrument_platform_for <- function(instrument) {
+  instrument <- as.character(instrument)
+
+  if (instrument == "SL00784") {
+    return("MiSeqi100Series")
+  }
+
+  if (instrument == "VH01716") {
+    return("NextSeq1k2k")
+  }
+
+  # Default for other V2-producing runs.
+  return("NextSeq1k2k")
+}
+
+instrument_platform <- instrument_platform_for(instrument)
+
+print(paste(
+  "DEBUG is_v2 =", is_v2,
+  "| instrument =", instrument,
+  "| experiment =", experiment,
+  "| InstrumentPlatform =", instrument_platform,
+  "| BCLConvert SoftwareVersion =", software_version
+))
 
 ############################################
 #     Retrieve Project Name and Investigator
@@ -385,7 +426,7 @@ if (is_v2) {
   header_data <- list(
     FileFormatVersion = "2",
     RunName = run.name,
-    InstrumentPlatform = "NextSeq1k2k",
+    InstrumentPlatform = instrument_platform,
     IndexOrientation = "Forward",
     Custom_GRSID = grsid_name
   )
@@ -416,7 +457,14 @@ if (is_v2) {
   if (!is.null(customrecipe) && nzchar(customrecipe)) {
     write_ss_section(main_ss_path, "[Sequencing_Settings],", list(LibraryPrepKits = customrecipe))
   }
-  write_ss_section(main_ss_path, "[BCLConvert_Settings],", list(SoftwareVersion = "4.2.7", FastqCompressionFormat = "gzip"))
+write_ss_section(
+  main_ss_path,
+  "[BCLConvert_Settings],",
+  list(
+    SoftwareVersion = software_version,
+    FastqCompressionFormat = "gzip"
+  )
+)
 } else {
   write_ss_section(main_ss_path, "[Settings],", list())
 }
